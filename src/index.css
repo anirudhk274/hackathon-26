@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-gold: #d4af37;
+  --color-navy: #0B0E14;
+  --color-navy-light: #162032;
+  --font-sans: 'Inter', sans-serif;
+}
+
+/* Scrollbar styling for the premium feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4af3740;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d4af3780;
+}
+
+/* Custom pulse ring for check-in button */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+

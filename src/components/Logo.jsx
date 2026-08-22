@@ -2,7 +2,7 @@ import React from 'react';
 
 /**
  * Logo Component
- * Northline brand mark featuring 3 gold vertical bars and branded typography.
+ * Dayflow brand mark featuring 3 gold vertical bars and branded typography.
  * 
  * @param {Object} props
  * @param {boolean} [props.collapsed=false] - Whether to render in collapsed state (icon only)
@@ -22,7 +22,7 @@ export default function Logo({ collapsed = false, className = '' }) {
       {!collapsed && (
         <div className="flex flex-col min-w-0">
           <span className="text-white text-sm font-bold tracking-[0.2em]">
-            NORTHLINE
+            DAYFLOW
           </span>
           <span className="text-gray-500 text-[10px] tracking-widest uppercase">
             Employee Portal

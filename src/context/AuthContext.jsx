@@ -6,14 +6,14 @@ const MOCK_USERS = {
   employee: {
     id: 'EMP-2024-0142',
     name: 'Arjun Mehta',
-    email: 'arjun.mehta@northline.com',
+    email: 'arjun.mehta@dayflow.com',
     role: 'employee',
     avatar: null,
   },
   admin: {
     id: 'ADM-2024-0007',
     name: 'Priya Sharma',
-    email: 'priya.sharma@northline.com',
+    email: 'priya.sharma@dayflow.com',
     role: 'admin',
     avatar: null,
   },

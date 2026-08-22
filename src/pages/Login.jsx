@@ -245,7 +245,7 @@ const Login = () => {
 
         {/* Footer */}
         <p className="text-center text-xs text-gray-600 mt-6">
-          © {new Date().getFullYear()} Northline HR Portal
+          © {new Date().getFullYear()} Dayflow HR Portal
         </p>
       </motion.div>
     </div>

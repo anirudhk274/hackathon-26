@@ -31,7 +31,7 @@ export default function NotificationDropdown({ notifications, isOpen, onClose, o
                     className="p-4 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors flex gap-3"
                   >
                     <div className="mt-1 flex-shrink-0">
-                      {notification.unread ? (
+                      {!notification.isRead ? (
                         <div className="w-2 h-2 rounded-full bg-[#d4af37]" />
                       ) : (
                         <div className="w-2 h-2" />

@@ -3,7 +3,7 @@ export const employee = {
   name: 'Arjun Mehta',
   designation: 'Senior Software Engineer',
   department: 'Engineering',
-  email: 'arjun.mehta@northline.com',
+  email: 'arjun.mehta@dayflow.com',
   phone: '+91 98765 43210',
   dob: '1992-03-15',
   gender: 'Male',

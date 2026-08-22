@@ -11,7 +11,7 @@ export default function Topbar({ title, onMenuClick }) {
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount || 0);
 
   const handleMarkAllRead = () => {
-    setNotifications(notifications.map((n) => ({ ...n, unread: false })));
+    setNotifications(notifications.map((n) => ({ ...n, isRead: true })));
     setUnreadCount(0);
   };
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   User, Mail, Phone, MapPin, Calendar, Briefcase, Building,
@@ -7,21 +7,40 @@ import {
 import PageTransition from '../components/PageTransition';
 import Card from '../components/Card';
 import Button from '../components/Button';
-import employee from '../data/employee';
+import { useAuth } from '../context/AuthContext';
+import { getUsers } from '../lib/api';
 import { Link } from 'react-router-dom';
 
 const Profile = () => {
+  const { user: authUser } = useAuth();
+  const [employee, setEmployee] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState({
-    phone: employee.phone,
-    address: { ...employee.address }
-  });
-  
-  // Dummy state to mock saving locally
-  const [savedData, setSavedData] = useState({ ...editData });
+  const [editData, setEditData] = useState({ phone: '', address: {} });
+  const [savedData, setSavedData] = useState({ phone: '', address: {} });
+
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        const users = await getUsers();
+        // Find the employee user
+        const emp = users.find(u => u.role === 'EMPLOYEE');
+        if (emp) {
+          setEmployee(emp);
+          const data = { phone: emp.phone || '', address: emp.address || '' };
+          setEditData(data);
+          setSavedData({ ...data });
+        }
+      } catch (err) {
+        console.error('Failed to fetch user profile:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchUser();
+  }, []);
 
   const handleSave = () => {
-    // TODO: enforce server-side
     setSavedData({ ...editData });
     setIsEditing(false);
   };
@@ -31,15 +50,15 @@ const Profile = () => {
     setIsEditing(false);
   };
 
-  const handleAddressChange = (e) => {
-    setEditData({
-      ...editData,
-      address: {
-        ...editData.address,
-        [e.target.name]: e.target.value
-      }
-    });
-  };
+  if (loading) {
+    return (
+      <PageTransition>
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <div className="animate-spin w-8 h-8 border-4 border-[#d4af37] border-t-transparent rounded-full" />
+        </div>
+      </PageTransition>
+    );
+  }
 
   return (
     <PageTransition>
@@ -74,9 +93,9 @@ const Profile = () => {
             <Card className="sticky top-6">
               <div className="flex flex-col items-center text-center">
                 <div className="relative group">
-                  <div className={`w-28 h-28 md:w-32 md:h-32 rounded-full ring-4 ring-[#d4af37]/30 flex items-center justify-center overflow-hidden ${!employee.profilePicture ? 'bg-[#d4af37]/10' : ''}`}>
-                    {employee.profilePicture ? (
-                      <img src={employee.profilePicture} alt={employee.name} className="w-full h-full object-cover" />
+                  <div className={`w-28 h-28 md:w-32 md:h-32 rounded-full ring-4 ring-[#d4af37]/30 flex items-center justify-center overflow-hidden ${!employee?.avatarUrl ? 'bg-[#d4af37]/10' : ''}`}>
+                    {employee?.avatarUrl ? (
+                      <img src={employee.avatarUrl} alt={employee.name} className="w-full h-full object-cover" />
                     ) : (
                       <User className="w-12 h-12 text-[#d4af37]" />
                     )}
@@ -89,16 +108,16 @@ const Profile = () => {
                   )}
                 </div>
 
-                <h2 className="text-xl font-bold text-gray-900 mt-4">{employee.name}</h2>
-                <p className="text-sm text-gray-500">{employee.designation}</p>
+                <h2 className="text-xl font-bold text-gray-900 mt-4">{employee?.name || authUser?.name || 'Employee'}</h2>
+                <p className="text-sm text-gray-500">{employee?.jobTitle || 'N/A'}</p>
                 
                 <div className="inline-flex items-center bg-[#d4af37]/10 text-[#d4af37] text-xs font-semibold rounded-full px-3 py-1 mt-2">
-                  EMP: {employee.id}
+                  EMP: {employee?.employeeId || 'N/A'}
                 </div>
 
                 <div className="flex items-center text-sm text-gray-500 mt-3">
                   <Building className="w-4 h-4 mr-1.5" />
-                  {employee.department}
+                  {employee?.department || 'N/A'}
                 </div>
 
                 <div className="mt-6 w-full">
@@ -130,32 +149,12 @@ const Profile = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 <div>
                   <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-                    Date of Birth
-                  </label>
-                  <div className="flex items-center justify-between opacity-60">
-                    <span className="text-sm text-gray-900">{new Date(employee.dateOfBirth).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                    <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-                    Gender
-                  </label>
-                  <div className="flex items-center justify-between opacity-60">
-                    <span className="text-sm text-gray-900">{employee.gender}</span>
-                    <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
                     Email Address
                   </label>
                   <div className="flex items-center justify-between opacity-60">
                     <div className="flex items-center text-sm text-gray-900">
                       <Mail className="w-4 h-4 mr-2 text-gray-400" />
-                      {employee.email}
+                      {employee?.email || 'N/A'}
                     </div>
                     <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
                   </div>
@@ -177,7 +176,7 @@ const Profile = () => {
                   ) : (
                     <div className="flex items-center text-sm text-gray-900">
                       <Phone className="w-4 h-4 mr-2 text-gray-400" />
-                      {savedData.phone}
+                      {savedData.phone || 'N/A'}
                     </div>
                   )}
                 </div>
@@ -187,62 +186,18 @@ const Profile = () => {
                     Address
                   </label>
                   {isEditing ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <input
-                        type="text"
-                        name="line1"
-                        placeholder="Line 1"
-                        value={editData.address.line1 || ''}
-                        onChange={handleAddressChange}
-                        className="w-full text-sm border-gray-300 rounded-md focus:ring-[#d4af37] focus:border-[#d4af37] p-2 border"
-                        aria-label="Address Line 1"
-                      />
-                      <input
-                        type="text"
-                        name="line2"
-                        placeholder="Line 2"
-                        value={editData.address.line2 || ''}
-                        onChange={handleAddressChange}
-                        className="w-full text-sm border-gray-300 rounded-md focus:ring-[#d4af37] focus:border-[#d4af37] p-2 border"
-                        aria-label="Address Line 2"
-                      />
-                      <input
-                        type="text"
-                        name="city"
-                        placeholder="City"
-                        value={editData.address.city || ''}
-                        onChange={handleAddressChange}
-                        className="w-full text-sm border-gray-300 rounded-md focus:ring-[#d4af37] focus:border-[#d4af37] p-2 border"
-                        aria-label="City"
-                      />
-                      <div className="grid grid-cols-2 gap-4">
-                        <input
-                          type="text"
-                          name="state"
-                          placeholder="State"
-                          value={editData.address.state || ''}
-                          onChange={handleAddressChange}
-                          className="w-full text-sm border-gray-300 rounded-md focus:ring-[#d4af37] focus:border-[#d4af37] p-2 border"
-                          aria-label="State"
-                        />
-                        <input
-                          type="text"
-                          name="pin"
-                          placeholder="PIN Code"
-                          value={editData.address.pin || ''}
-                          onChange={handleAddressChange}
-                          className="w-full text-sm border-gray-300 rounded-md focus:ring-[#d4af37] focus:border-[#d4af37] p-2 border"
-                          aria-label="PIN Code"
-                        />
-                      </div>
-                    </div>
+                    <input
+                      type="text"
+                      placeholder="Address"
+                      value={editData.address || ''}
+                      onChange={(e) => setEditData({...editData, address: e.target.value})}
+                      className="w-full text-sm border-gray-300 rounded-md focus:ring-[#d4af37] focus:border-[#d4af37] p-2 border"
+                      aria-label="Address"
+                    />
                   ) : (
-                    <div className="flex items-start text-sm text-gray-900 mt-1">
+                    <div className="flex items-center text-sm text-gray-900 mt-1">
                       <MapPin className="w-4 h-4 mr-2 text-gray-400 mt-0.5 shrink-0" />
-                      <span>
-                        {savedData.address.line1}, {savedData.address.line2 && `${savedData.address.line2}, `}
-                        {savedData.address.city}, {savedData.address.state} - {savedData.address.pin}
-                      </span>
+                      <span>{savedData.address || 'N/A'}</span>
                     </div>
                   )}
                 </div>
@@ -264,7 +219,7 @@ const Profile = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center text-sm text-gray-900">
                       <Briefcase className="w-4 h-4 mr-2 text-gray-400" />
-                      {employee.designation}
+                      {employee?.jobTitle || 'N/A'}
                     </div>
                     <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
                   </div>
@@ -277,7 +232,7 @@ const Profile = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center text-sm text-gray-900">
                       <Building className="w-4 h-4 mr-2 text-gray-400" />
-                      {employee.department}
+                      {employee?.department || 'N/A'}
                     </div>
                     <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
                   </div>
@@ -285,38 +240,25 @@ const Profile = () => {
 
                 <div>
                   <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-                    Joining Date
-                  </label>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center text-sm text-gray-900">
-                      <Calendar className="w-4 h-4 mr-2 text-gray-400" />
-                      {new Date(employee.joiningDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-                    </div>
-                    <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-                    Reporting Manager
-                  </label>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center text-sm text-gray-900">
-                      <Users className="w-4 h-4 mr-2 text-gray-400" />
-                      {employee.manager || "N/A"}
-                    </div>
-                    <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-                    Employment Type
+                    Employee ID
                   </label>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center text-sm text-gray-900">
                       <Shield className="w-4 h-4 mr-2 text-gray-400" />
-                      {employee.employmentType || "Full-time"}
+                      {employee?.employeeId || 'N/A'}
+                    </div>
+                    <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
+                    Role
+                  </label>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center text-sm text-gray-900">
+                      <Users className="w-4 h-4 mr-2 text-gray-400" />
+                      {employee?.role === 'ADMIN' ? 'Admin' : 'Employee'}
                     </div>
                     <Lock className="w-4 h-4 text-gray-400" title="Contact HR to update this field" />
                   </div>
@@ -324,79 +266,18 @@ const Profile = () => {
               </div>
             </Card>
 
-            {/* Section 3: Salary Information */}
-            <Card>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">Salary Information</h3>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <span className="font-medium mr-2 text-gray-400 uppercase text-xs tracking-wider">CTC Band:</span>
-                    <span className="font-semibold">{employee.ctcBand || "N/A"}</span>
-                  </div>
-                </div>
-                <Link to="/payroll" className="text-sm font-medium text-[#d4af37] hover:text-[#b8962e] flex items-center shrink-0">
-                  View detailed payroll &rarr;
-                </Link>
-              </div>
-            </Card>
-
-            {/* Section 4: Documents */}
+            {/* Section 3: Documents (placeholder) */}
             <Card>
               <div className="flex items-center gap-2 mb-6">
                 <FileText className="w-5 h-5 text-[#d4af37]" />
                 <h3 className="text-lg font-bold text-gray-900">Documents</h3>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {employee.documents && employee.documents.length > 0 ? (
-                  employee.documents.map((doc, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:border-gray-200 transition-colors bg-white">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-[#d4af37]/10 rounded-md shrink-0">
-                          <FileText className="w-4 h-4 text-[#d4af37]" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{doc.name}</p>
-                          <p className="text-xs text-gray-500">{doc.type}</p>
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="sm" className="text-gray-500 shrink-0" aria-label={`Download ${doc.name}`}>
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:border-gray-200 transition-colors bg-white">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-[#d4af37]/10 rounded-md shrink-0">
-                          <FileText className="w-4 h-4 text-[#d4af37]" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">Offer Letter</p>
-                          <p className="text-xs text-gray-500">PDF Document</p>
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="sm" className="text-gray-500 shrink-0">
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    </div>
-                    <div className="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:border-gray-200 transition-colors bg-white">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-[#d4af37]/10 rounded-md shrink-0">
-                          <FileText className="w-4 h-4 text-[#d4af37]" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">ID Proof</p>
-                          <p className="text-xs text-gray-500">Image</p>
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="sm" className="text-gray-500 shrink-0">
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </>
-                )}
+              <div className="bg-gray-50 rounded-xl p-8 flex flex-col items-center justify-center text-center">
+                <FileText size={40} className="text-[#d4af37] opacity-60 mb-3" />
+                <p className="text-sm font-medium text-gray-600">
+                  No documents uploaded yet
+                </p>
               </div>
             </Card>
 

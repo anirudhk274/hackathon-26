@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Clock, LogIn, LogOut, Calendar, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
@@ -7,60 +7,133 @@ import StatusBadge from '../components/StatusBadge';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
-import { attendanceRecords, todayStatus, monthlyStats } from '../data/attendance';
+import { useAuth } from '../context/AuthContext';
+import { getAttendance, checkIn as apiCheckIn, checkOut as apiCheckOut } from '../lib/api';
 
 export default function Attendance() {
+  const { user: authUser } = useAuth();
   const [viewMode, setViewMode] = useState('daily');
-  const [isCheckedIn, setIsCheckedIn] = useState(todayStatus?.isCheckedIn || false);
-  const [isCheckedOut, setIsCheckedOut] = useState(todayStatus?.isCheckedOut || false);
-  const [checkInTime, setCheckInTime] = useState(todayStatus?.checkIn || '');
-  const [checkOutTime, setCheckOutTime] = useState(todayStatus?.checkOut || null);
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
 
   const ITEMS_PER_PAGE = 10;
 
-  const handleCheckIn = () => {
-    // TODO: enforce server-side check-in validation
-    setIsCheckedIn(true);
-    const now = new Date();
-    setCheckInTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  // Fetch attendance from API
+  useEffect(() => {
+    async function fetchAttendance() {
+      try {
+        const data = await getAttendance();
+        // Transform API data to match expected format
+        const formatted = data.map(record => ({
+          date: record.date ? new Date(record.date).toISOString().split('T')[0] : '',
+          checkIn: record.checkIn ? new Date(record.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+          checkOut: record.checkOut ? new Date(record.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+          hoursWorked: record.checkIn && record.checkOut
+            ? ((new Date(record.checkOut) - new Date(record.checkIn)) / 3600000).toFixed(1)
+            : null,
+          status: record.status,
+          employeeName: record.user?.name || 'Unknown',
+          employeeId: record.user?.employeeId || '',
+        }));
+        setRecords(formatted);
+      } catch (err) {
+        console.error('Failed to fetch attendance:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchAttendance();
+  }, []);
+
+  // Today's status derived from records
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayRecord = records.find(r => r.date === todayStr);
+  const isCheckedIn = todayRecord && !todayRecord.checkOut;
+  const checkInTime = todayRecord?.checkIn || '';
+  const checkOutTime = todayRecord?.checkOut || null;
+
+  const handleCheckIn = async () => {
+    if (!authUser?.id) return;
+    setActionLoading(true);
+    try {
+      await apiCheckIn(authUser.id);
+      // Refresh records
+      const data = await getAttendance();
+      const formatted = data.map(record => ({
+        date: record.date ? new Date(record.date).toISOString().split('T')[0] : '',
+        checkIn: record.checkIn ? new Date(record.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+        checkOut: record.checkOut ? new Date(record.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+        hoursWorked: record.checkIn && record.checkOut
+          ? ((new Date(record.checkOut) - new Date(record.checkIn)) / 3600000).toFixed(1)
+          : null,
+        status: record.status,
+        employeeName: record.user?.name || 'Unknown',
+        employeeId: record.user?.employeeId || '',
+      }));
+      setRecords(formatted);
+    } catch (err) {
+      console.error('Check-in failed:', err);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const handleCheckOut = () => {
-    // TODO: enforce server-side check-out validation
-    setIsCheckedOut(true);
-    const now = new Date();
-    setCheckOutTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  const handleCheckOut = async () => {
+    if (!authUser?.id) return;
+    setActionLoading(true);
+    try {
+      await apiCheckOut(authUser.id);
+      // Refresh records
+      const data = await getAttendance();
+      const formatted = data.map(record => ({
+        date: record.date ? new Date(record.date).toISOString().split('T')[0] : '',
+        checkIn: record.checkIn ? new Date(record.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+        checkOut: record.checkOut ? new Date(record.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+        hoursWorked: record.checkIn && record.checkOut
+          ? ((new Date(record.checkOut) - new Date(record.checkIn)) / 3600000).toFixed(1)
+          : null,
+        status: record.status,
+        employeeName: record.user?.name || 'Unknown',
+        employeeId: record.user?.employeeId || '',
+      }));
+      setRecords(formatted);
+    } catch (err) {
+      console.error('Check-out failed:', err);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const filteredRecords = useMemo(() => {
-    return attendanceRecords.filter((record) => {
+    return records.filter((record) => {
       if (!record.status) return false; 
       const matchStatus = filterStatus === 'all' || record.status.toLowerCase() === filterStatus.toLowerCase();
       const matchMonth = filterMonth === 'all' || (record.date && record.date.startsWith(filterMonth));
       return matchStatus && matchMonth;
     });
-  }, [filterStatus, filterMonth]);
+  }, [records, filterStatus, filterMonth]);
 
   const totalPages = Math.ceil(filteredRecords.length / ITEMS_PER_PAGE);
   const paginatedRecords = filteredRecords.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-  const weeklyData = attendanceRecords.slice(-7).map(record => ({
-    name: new Date(record.date).toLocaleDateString('en-US', { weekday: 'short' }),
-    hours: record.hoursWorked || 0,
+  const weeklyData = records.slice(-7).map(record => ({
+    name: record.date ? new Date(record.date).toLocaleDateString('en-US', { weekday: 'short' }) : '',
+    hours: record.hoursWorked ? parseFloat(record.hoursWorked) : 0,
     status: record.status,
     date: record.date
   }));
 
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
-      case 'present': return '#10b981'; // emerald-500
-      case 'absent': return '#f43f5e'; // rose-500
-      case 'half-day': return '#f59e0b'; // amber-500
-      case 'leave': return '#d4af37'; // gold
-      default: return '#9ca3af'; // gray-400
+      case 'present': return '#10b981';
+      case 'absent': return '#f43f5e';
+      case 'half-day': return '#f59e0b';
+      case 'leave': return '#d4af37';
+      default: return '#9ca3af';
     }
   };
 
@@ -79,6 +152,16 @@ export default function Attendance() {
     }
     return null;
   };
+
+  if (loading) {
+    return (
+      <PageTransition>
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <div className="animate-spin w-8 h-8 border-4 border-[#d4af37] border-t-transparent rounded-full" />
+        </div>
+      </PageTransition>
+    );
+  }
 
   return (
     <PageTransition>
@@ -99,7 +182,7 @@ export default function Attendance() {
               <div className="flex flex-col gap-2 p-4 bg-[#0B0E14]/50 rounded-xl border border-gray-800">
                 <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Current Status</span>
                 <div>
-                  <StatusBadge status={isCheckedOut ? 'Present' : (isCheckedIn ? 'Present' : 'Absent')} />
+                  <StatusBadge status={isCheckedIn ? 'Present' : 'Absent'} />
                 </div>
               </div>
               <div className="flex flex-col gap-2 p-4 bg-[#0B0E14]/50 rounded-xl border border-gray-800">
@@ -125,16 +208,24 @@ export default function Attendance() {
           {!isCheckedIn ? (
             <div className="relative group">
               <div className="absolute -inset-1 bg-[#d4af37]/30 rounded-xl animate-pulse blur-md"></div>
-              <Button onClick={handleCheckIn} className="relative bg-[#d4af37] text-[#0B0E14] font-semibold hover:brightness-110 px-8 py-4 text-lg">
-                <LogIn className="w-5 h-5 mr-2" />
+              <Button onClick={handleCheckIn} disabled={actionLoading} className="relative bg-[#d4af37] text-[#0B0E14] font-semibold hover:brightness-110 px-8 py-4 text-lg">
+                {actionLoading ? (
+                  <div className="animate-spin w-5 h-5 border-2 border-[#0B0E14] border-t-transparent rounded-full mr-2" />
+                ) : (
+                  <LogIn className="w-5 h-5 mr-2" />
+                )}
                 Check In
               </Button>
             </div>
-          ) : !isCheckedOut ? (
+          ) : !checkOutTime ? (
             <div className="relative group">
               <div className="absolute -inset-1 bg-[#d4af37]/30 rounded-xl animate-pulse blur-md"></div>
-              <Button variant="outline" onClick={handleCheckOut} className="relative border-[#d4af37] text-[#d4af37] bg-transparent hover:bg-[#d4af37] hover:text-[#0B0E14] font-semibold px-8 py-4 text-lg">
-                <LogOut className="w-5 h-5 mr-2" />
+              <Button variant="secondary" onClick={handleCheckOut} disabled={actionLoading} className="relative border-[#d4af37] text-[#d4af37] bg-transparent hover:bg-[#d4af37] hover:text-[#0B0E14] font-semibold px-8 py-4 text-lg">
+                {actionLoading ? (
+                  <div className="animate-spin w-5 h-5 border-2 border-[#d4af37] border-t-transparent rounded-full mr-2" />
+                ) : (
+                  <LogOut className="w-5 h-5 mr-2" />
+                )}
                 Check Out
               </Button>
             </div>
@@ -180,7 +271,7 @@ export default function Attendance() {
                       {isCheckedIn && (
                         <motion.div
                           initial={{ width: 0 }}
-                          animate={{ width: isCheckedOut ? '100%' : '50%' }}
+                          animate={{ width: checkOutTime ? '100%' : '50%' }}
                           transition={{ duration: 1 }}
                           className="h-full bg-[#d4af37]"
                         />
@@ -193,7 +284,7 @@ export default function Attendance() {
                   </div>
                   <div className="text-center min-w-[120px]">
                     <div className="text-4xl font-bold tabular-nums text-gray-900">
-                      {isCheckedOut ? '8.0' : (isCheckedIn ? '4.5' : '0.0')}
+                      {checkOutTime ? '8.0' : (isCheckedIn ? '4.5' : '0.0')}
                     </div>
                     <div className="text-xs font-semibold uppercase tracking-widest text-[#d4af37] mt-1">Hours</div>
                   </div>
@@ -249,8 +340,8 @@ export default function Attendance() {
                   aria-label="Filter by month"
                 >
                   <option value="all">All Months</option>
-                  <option value="2023-10">October 2023</option>
-                  <option value="2023-09">September 2023</option>
+                  <option value="2026-08">August 2026</option>
+                  <option value="2026-07">July 2026</option>
                 </select>
                 <Calendar className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               </div>
@@ -264,8 +355,7 @@ export default function Attendance() {
                   <option value="all">All Status</option>
                   <option value="present">Present</option>
                   <option value="absent">Absent</option>
-                  <option value="half-day">Half-day</option>
-                  <option value="leave">Leave</option>
+                  <option value="half_day">Half-day</option>
                 </select>
                 <Filter className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               </div>
@@ -288,7 +378,7 @@ export default function Attendance() {
                   <tbody className="divide-y divide-gray-100">
                     {paginatedRecords.map((record, index) => (
                       <motion.tr
-                        key={record.id || index}
+                        key={record.date + index}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.05 }}
@@ -297,7 +387,7 @@ export default function Attendance() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{record.date}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{record.checkIn || '--:--'}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{record.checkOut || '--:--'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 tabular-nums font-medium">{record.hoursWorked ? record.hoursWorked.toFixed(1) : '-'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 tabular-nums font-medium">{record.hoursWorked || '-'}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <StatusBadge status={record.status} />
                         </td>
@@ -307,28 +397,6 @@ export default function Attendance() {
                 </table>
               </div>
 
-              <div className="md:hidden divide-y divide-gray-100">
-                {paginatedRecords.map((record, index) => (
-                  <motion.div
-                    key={record.id || index}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="p-4 space-y-3"
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium text-gray-900">{record.date}</span>
-                      <StatusBadge status={record.status} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
-                      <div><span className="text-gray-400 block text-xs">Check In</span>{record.checkIn || '--:--'}</div>
-                      <div><span className="text-gray-400 block text-xs">Check Out</span>{record.checkOut || '--:--'}</div>
-                      <div className="col-span-2"><span className="text-gray-400 block text-xs">Hours Worked</span><span className="font-medium text-gray-900">{record.hoursWorked ? record.hoursWorked.toFixed(1) : '-'}</span></div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-
               {totalPages > 1 && (
                 <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
                   <span className="text-sm text-gray-600 font-medium">
@@ -336,7 +404,6 @@ export default function Attendance() {
                   </span>
                   <div className="flex gap-2">
                     <Button
-                      variant="outline"
                       onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                       disabled={currentPage === 1}
                       className="px-3 py-1 text-sm bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
@@ -344,7 +411,6 @@ export default function Attendance() {
                       <ChevronLeft className="w-4 h-4" />
                     </Button>
                     <Button
-                      variant="outline"
                       onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                       disabled={currentPage === totalPages}
                       className="px-3 py-1 text-sm bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"

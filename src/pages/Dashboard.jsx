@@ -1,19 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Clock, CalendarDays, Wallet, User, LogIn, LogOut, 
-  ChevronRight, CheckCircle, FileText, CalendarPlus, 
-  Bell, ArrowUpRight, Info, AlertTriangle, FileCheck
+  CheckCircle, FileText, CalendarPlus, 
+  ArrowUpRight, Info, AlertTriangle, FileCheck
 } from 'lucide-react';
 import PageTransition from '../components/PageTransition';
 import StatusBadge from '../components/StatusBadge';
 import Card from '../components/Card';
-import Button from '../components/Button';
-import employee from '../data/employee';
-import { todayStatus, monthlyStats } from '../data/attendance';
-import { leaveBalance } from '../data/leave';
-import { currentPayslip } from '../data/payroll';
+import { useAuth } from '../context/AuthContext';
+import { getUsers, getAttendance, getLeaves, getPayroll } from '../lib/api';
 import { notifications as initialNotifications, recentActivity } from '../data/notifications';
 
 // Helper to map icon names from string to Lucide component
@@ -23,10 +20,13 @@ const getIcon = (iconName) => {
     'Clock': Clock,
     'FileText': FileText,
     'CalendarDays': CalendarDays,
+    'CalendarPlus': CalendarPlus,
     'Info': Info,
     'AlertTriangle': AlertTriangle,
     'FileCheck': FileCheck,
     'Wallet': Wallet,
+    'LogIn': LogIn,
+    'LogOut': LogOut,
   };
   const Icon = icons[iconName] || Info;
   return <Icon className="w-4 h-4" />;
@@ -34,26 +34,74 @@ const getIcon = (iconName) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user: authUser } = useAuth();
   const [notifications, setNotifications] = useState(initialNotifications);
+  const [employee, setEmployee] = useState(null);
+  const [attendance, setAttendance] = useState([]);
+  const [leaves, setLeaves] = useState([]);
+  const [payroll, setPayroll] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [users, attendanceData, leavesData, payrollData] = await Promise.all([
+          getUsers(),
+          getAttendance(),
+          getLeaves(),
+          getPayroll(),
+        ]);
+
+        // Find the current employee user
+        const emp = users.find(u => u.role === 'EMPLOYEE');
+        setEmployee(emp);
+
+        setAttendance(attendanceData);
+        setLeaves(leavesData);
+        setPayroll(payrollData);
+      } catch (err) {
+        console.error('Failed to fetch dashboard data:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   const markAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
+    setNotifications(notifications.map(n => ({ ...n, isRead: true })));
   };
 
-  const totalLeaveRemaining = Object.values(leaveBalance).reduce((sum, type) => sum + type.remaining, 0);
-  
-  // Format date natively
+  // Derive stats from API data
   const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const todayAttendance = attendance.find(a => a.date && a.date.startsWith(todayStr));
+  const isCheckedIn = todayAttendance && !todayAttendance.checkOut;
+
+  const thisMonth = today.toISOString().slice(0, 7);
+  const monthAttendance = attendance.filter(a => a.date && a.date.startsWith(thisMonth));
+  const presentDays = monthAttendance.filter(a => a.status === 'PRESENT').length;
+  const totalWorkingDays = 22;
+  const presentPercentage = (presentDays / totalWorkingDays) * 100;
+
+  const pendingLeaves = leaves.filter(l => l.status === 'PENDING').length;
+  const latestPayroll = payroll[0];
+
   const formattedDate = today.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric'
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   });
 
-  const presentPercentage = (monthlyStats.presentDays / monthlyStats.totalWorkingDays) * 100;
+  if (loading) {
+    return (
+      <PageTransition>
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <div className="animate-spin w-8 h-8 border-4 border-[#d4af37] border-t-transparent rounded-full" />
+        </div>
+      </PageTransition>
+    );
+  }
 
   return (
     <PageTransition>
@@ -70,11 +118,11 @@ const Dashboard = () => {
             Employee Portal
           </p>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gray-900">
-            Welcome back, {employee.name}
+            Welcome back, {employee?.name || authUser?.name || 'Employee'}
           </h1>
           <div className="flex items-center gap-4 mt-1">
             <span className="text-gray-500 font-medium">{formattedDate}</span>
-            <StatusBadge status={todayStatus.status} />
+            <StatusBadge status={isCheckedIn ? 'Present' : 'Absent'} />
           </div>
         </motion.section>
 
@@ -90,8 +138,8 @@ const Dashboard = () => {
             className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-transform hover:-translate-y-0.5 hover:brightness-110 bg-[#d4af37] text-[#0B0E14]"
             onClick={() => navigate('/attendance')}
           >
-            {todayStatus.isCheckedIn ? <LogOut className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
-            {todayStatus.isCheckedIn ? 'Check Out' : 'Check In'}
+            {isCheckedIn ? <LogOut className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
+            {isCheckedIn ? 'Check Out' : 'Check In'}
           </button>
           
           <button 
@@ -133,7 +181,7 @@ const Dashboard = () => {
                   Attendance
                 </p>
                 <p className="text-3xl md:text-4xl font-bold tabular-nums text-gray-900 mb-2">
-                  {monthlyStats.presentDays}/{monthlyStats.totalWorkingDays}
+                  {presentDays}/{totalWorkingDays}
                 </p>
                 <p className="text-sm text-gray-500 mb-4">
                   Days Present This Month
@@ -156,13 +204,13 @@ const Dashboard = () => {
                 </div>
               </div>
               <p className="uppercase text-xs tracking-widest text-gray-400 font-semibold mb-1">
-                Leave Balance
+                Leave Requests
               </p>
               <p className="text-3xl md:text-4xl font-bold tabular-nums text-gray-900 mb-2">
-                {totalLeaveRemaining}
+                {leaves.length}
               </p>
               <p className="text-sm text-gray-500">
-                Paid: {leaveBalance.annual?.remaining || 0} · Sick: {leaveBalance.sick?.remaining || 0} · Unpaid: {leaveBalance.unpaid?.remaining || 0}
+                {pendingLeaves} pending approval
               </p>
             </Card>
           </motion.div>
@@ -178,7 +226,7 @@ const Dashboard = () => {
                 Pending Requests
               </p>
               <p className="text-3xl md:text-4xl font-bold tabular-nums text-gray-900 mb-2">
-                1
+                {pendingLeaves}
               </p>
               <p className="text-sm text-gray-500">
                 Awaiting Approval
@@ -197,11 +245,11 @@ const Dashboard = () => {
                 Net Pay
               </p>
               <p className="text-3xl md:text-4xl font-bold tabular-nums text-gray-900 mb-2">
-                ₹{currentPayslip.netSalary.toLocaleString()}
+                ₹{(latestPayroll?.netSalary || 0).toLocaleString()}
               </p>
               <div className="flex items-center justify-between mt-auto">
                 <p className="text-sm text-gray-500">
-                  {currentPayslip.month}
+                  {latestPayroll ? new Date(latestPayroll.paymentDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'N/A'}
                 </p>
                 <Link to="/payroll" className="text-sm text-[#d4af37] font-medium hover:underline flex items-center gap-1">
                   View <ArrowUpRight className="w-3 h-3" />
@@ -225,10 +273,9 @@ const Dashboard = () => {
               </div>
               
               <div className="relative pl-6 space-y-6">
-                {/* Thin vertical line connecting dots */}
                 <div className="absolute left-[3px] top-2 bottom-2 border-l border-[#d4af37]/30"></div>
                 
-                {recentActivity.slice(0, 5).map((activity, idx) => (
+                {recentActivity.slice(0, 5).map((activity) => (
                   <div key={activity.id} className="relative">
                     <div className="absolute -left-6 top-1 w-2 h-2 rounded-full bg-[#d4af37]" />
                     <div className="flex gap-4 items-start">
@@ -279,12 +326,12 @@ const Dashboard = () => {
                     className={`py-4 flex gap-4 ${idx !== 0 ? 'border-t border-gray-100' : ''}`}
                   >
                     <div className="mt-1.5 w-2 shrink-0">
-                      {!notification.read && (
+                      {!notification.isRead && (
                         <div className="w-2 h-2 rounded-full bg-[#d4af37]"></div>
                       )}
                     </div>
                     <div>
-                      <p className={`text-sm font-medium ${notification.read ? 'text-gray-500' : 'text-gray-900'}`}>
+                      <p className={`text-sm font-medium ${notification.isRead ? 'text-gray-500' : 'text-gray-900'}`}>
                         {notification.title}
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5">

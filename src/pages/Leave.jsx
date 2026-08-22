@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarDays,
@@ -16,120 +16,141 @@ import StatusBadge from '../components/StatusBadge';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
-import { leaveBalance, leaveRequests, leaveCalendarEvents } from '../data/leave';
+import { useAuth } from '../context/AuthContext';
+import { getLeaves, createLeave } from '../lib/api';
 
 export default function Leave() {
+  const { user: authUser } = useAuth();
+  const [localRequests, setLocalRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [formData, setFormData] = useState({
-    type: 'Paid',
-    fromDate: '',
-    toDate: '',
-    remarks: ''
+    type: 'PAID',
+    startDate: '',
+    endDate: '',
+    reason: ''
   });
   const [calendarMonth, setCalendarMonth] = useState(new Date());
-  const [localRequests, setLocalRequests] = useState(leaveRequests);
 
-  // Form handling
+  // Fetch leaves from API
+  useEffect(() => {
+    async function fetchLeaves() {
+      try {
+        const data = await getLeaves();
+        // Transform API data to match expected format
+        const formatted = data.map(leave => ({
+          id: leave.id,
+          type: leave.type,
+          fromDate: leave.startDate ? new Date(leave.startDate).toISOString().split('T')[0] : '',
+          toDate: leave.endDate ? new Date(leave.endDate).toISOString().split('T')[0] : '',
+          days: leave.startDate && leave.endDate
+            ? Math.ceil((new Date(leave.endDate) - new Date(leave.startDate)) / 86400000) + 1
+            : 1,
+          remarks: leave.reason,
+          status: leave.status.charAt(0) + leave.status.slice(1).toLowerCase(),
+          hrRemarks: leave.adminComments,
+          appliedOn: leave.createdAt ? new Date(leave.createdAt).toISOString().split('T')[0] : '',
+        }));
+        setLocalRequests(formatted);
+      } catch (err) {
+        console.error('Failed to fetch leaves:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchLeaves();
+  }, []);
+
   const handleFormChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   const calculatedDays = useMemo(() => {
-    if (!formData.fromDate || !formData.toDate) return 0;
-    const start = new Date(formData.fromDate);
-    const end = new Date(formData.toDate);
+    if (!formData.startDate || !formData.endDate) return 0;
+    const start = new Date(formData.startDate);
+    const end = new Date(formData.endDate);
     const diffTime = end - start;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // inclusive
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
     return diffDays;
-  }, [formData.fromDate, formData.toDate]);
+  }, [formData.startDate, formData.endDate]);
 
-  const balanceWarning = useMemo(() => {
-    if (calculatedDays <= 0) return false;
-    let balance = 0;
-    if (formData.type === 'Paid') balance = leaveBalance.paid.remaining;
-    if (formData.type === 'Sick') balance = leaveBalance.sick.remaining;
-    
-    // Unpaid has no strict balance limit in this context
-    if (formData.type !== 'Unpaid' && calculatedDays > balance) {
-      return true;
-    }
-    return false;
-  }, [calculatedDays, formData.type]);
+  const isFormValid = formData.startDate && formData.endDate && calculatedDays > 0;
 
-  const isFormValid = formData.fromDate && formData.toDate && calculatedDays > 0 && !balanceWarning;
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isFormValid) return;
+    if (!isFormValid || !authUser?.id) return;
 
-    const newReq = {
-      id: `LR-${Math.floor(Math.random() * 10000)}`,
-      type: formData.type,
-      fromDate: formData.fromDate,
-      toDate: formData.toDate,
-      days: calculatedDays,
-      status: 'Pending',
-      appliedOn: new Date().toISOString().split('T')[0],
-      remarks: formData.remarks
-    };
-
-    setLocalRequests([newReq, ...localRequests]);
-    setFormData({ type: 'Paid', fromDate: '', toDate: '', remarks: '' });
-    setShowApplyForm(false);
+    setSubmitting(true);
+    try {
+      await createLeave({
+        userId: authUser.id,
+        type: formData.type,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        reason: formData.reason,
+      });
+      // Refresh leaves
+      const data = await getLeaves();
+      const formatted = data.map(leave => ({
+        id: leave.id,
+        type: leave.type,
+        fromDate: leave.startDate ? new Date(leave.startDate).toISOString().split('T')[0] : '',
+        toDate: leave.endDate ? new Date(leave.endDate).toISOString().split('T')[0] : '',
+        days: leave.startDate && leave.endDate
+          ? Math.ceil((new Date(leave.endDate) - new Date(leave.startDate)) / 86400000) + 1
+          : 1,
+        remarks: leave.reason,
+        status: leave.status.charAt(0) + leave.status.slice(1).toLowerCase(),
+        hrRemarks: leave.adminComments,
+        appliedOn: leave.createdAt ? new Date(leave.createdAt).toISOString().split('T')[0] : '',
+      }));
+      setLocalRequests(formatted);
+      setFormData({ type: 'PAID', startDate: '', endDate: '', reason: '' });
+      setShowApplyForm(false);
+    } catch (err) {
+      console.error('Failed to submit leave:', err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Calendar logic
   const currentYear = calendarMonth.getFullYear();
   const currentMonthIdx = calendarMonth.getMonth();
-
   const daysInMonth = new Date(currentYear, currentMonthIdx + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentYear, currentMonthIdx, 1).getDay();
-
   const prevMonthDays = new Date(currentYear, currentMonthIdx, 0).getDate();
   const nextMonth = () => setCalendarMonth(new Date(currentYear, currentMonthIdx + 1, 1));
   const prevMonth = () => setCalendarMonth(new Date(currentYear, currentMonthIdx - 1, 1));
 
   const calendarCells = [];
-  
-  // Previous month padding
   for (let i = 0; i < firstDayOfMonth; i++) {
-    calendarCells.push({
-      day: prevMonthDays - firstDayOfMonth + i + 1,
-      isCurrentMonth: false,
-      dateStr: null
-    });
+    calendarCells.push({ day: prevMonthDays - firstDayOfMonth + i + 1, isCurrentMonth: false, dateStr: null });
   }
-
-  // Current month days
   for (let i = 1; i <= daysInMonth; i++) {
     const dStr = `${currentYear}-${String(currentMonthIdx + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-    calendarCells.push({
-      day: i,
-      isCurrentMonth: true,
-      dateStr: dStr
-    });
+    calendarCells.push({ day: i, isCurrentMonth: true, dateStr: dStr });
   }
-
-  // Next month padding
   const totalCells = Math.ceil(calendarCells.length / 7) * 7;
   let nextDay = 1;
   while (calendarCells.length < totalCells) {
-    calendarCells.push({
-      day: nextDay++,
-      isCurrentMonth: false,
-      dateStr: null
-    });
+    calendarCells.push({ day: nextDay++, isCurrentMonth: false, dateStr: null });
   }
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  const getDayStatus = (dateStr) => {
-    if (!dateStr) return null;
-    const event = leaveCalendarEvents.find(e => e.date === dateStr);
-    return event ? event.status : null; // 'Approved' or 'Pending'
-  };
-
   const sortedRequests = [...localRequests].sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
+
+  if (loading) {
+    return (
+      <PageTransition>
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <div className="animate-spin w-8 h-8 border-4 border-[#d4af37] border-t-transparent rounded-full" />
+        </div>
+      </PageTransition>
+    );
+  }
 
   return (
     <PageTransition>
@@ -142,80 +163,6 @@ export default function Leave() {
           <Button onClick={() => setShowApplyForm(true)} icon={<Plus className="w-5 h-5" />}>
             Apply Leave
           </Button>
-        </div>
-
-        {/* Leave Balance Summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0 }}>
-            <Card className="h-full hover:shadow-md transition-shadow">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="bg-[#d4af37]/10 p-2 rounded-lg text-[#d4af37]">
-                  <CalendarDays className="w-5 h-5" />
-                </div>
-                <span className="uppercase text-xs font-semibold tracking-widest text-[#d4af37]">
-                  Paid Leave
-                </span>
-              </div>
-              <div className="flex items-end gap-2 mb-2">
-                <span className="text-4xl font-bold tabular-nums text-gray-900">
-                  {leaveBalance.paid.remaining}
-                </span>
-                <span className="text-gray-500 pb-1">/ {leaveBalance.paid.total}</span>
-              </div>
-              <p className="text-sm text-gray-500 mb-4">{leaveBalance.paid.used} days used</p>
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div 
-                  className="bg-[#d4af37] h-2 rounded-full" 
-                  style={{ width: `${(leaveBalance.paid.used / leaveBalance.paid.total) * 100}%` }}
-                ></div>
-              </div>
-            </Card>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.08 }}>
-            <Card className="h-full hover:shadow-md transition-shadow">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="bg-emerald-500/10 p-2 rounded-lg text-emerald-500">
-                  <Heart className="w-5 h-5" />
-                </div>
-                <span className="uppercase text-xs font-semibold tracking-widest text-[#d4af37]">
-                  Sick Leave
-                </span>
-              </div>
-              <div className="flex items-end gap-2 mb-2">
-                <span className="text-4xl font-bold tabular-nums text-gray-900">
-                  {leaveBalance.sick.remaining}
-                </span>
-                <span className="text-gray-500 pb-1">/ {leaveBalance.sick.total}</span>
-              </div>
-              <p className="text-sm text-gray-500 mb-4">{leaveBalance.sick.used} days used</p>
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div 
-                  className="bg-emerald-500 h-2 rounded-full" 
-                  style={{ width: `${(leaveBalance.sick.used / leaveBalance.sick.total) * 100}%` }}
-                ></div>
-              </div>
-            </Card>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.16 }}>
-            <Card className="h-full hover:shadow-md transition-shadow">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="bg-gray-400/10 p-2 rounded-lg text-gray-500">
-                  <Clock className="w-5 h-5" />
-                </div>
-                <span className="uppercase text-xs font-semibold tracking-widest text-[#d4af37]">
-                  Unpaid Leave
-                </span>
-              </div>
-              <div className="flex items-end gap-2 mb-2">
-                <span className="text-4xl font-bold tabular-nums text-gray-900">
-                  {leaveBalance.unpaid.used}
-                </span>
-              </div>
-              <p className="text-sm text-gray-500">Days taken</p>
-            </Card>
-          </motion.div>
         </div>
 
         {/* Apply Leave Form */}
@@ -247,7 +194,7 @@ export default function Leave() {
                       Leave Type
                     </label>
                     <div className="flex flex-wrap gap-3">
-                      {['Paid', 'Sick', 'Unpaid'].map((type) => (
+                      {['PAID', 'SICK', 'UNPAID'].map((type) => (
                         <button
                           key={type}
                           type="button"
@@ -258,10 +205,10 @@ export default function Leave() {
                               : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
                           }`}
                         >
-                          {type === 'Paid' && <CalendarDays className="w-4 h-4" />}
-                          {type === 'Sick' && <Heart className="w-4 h-4" />}
-                          {type === 'Unpaid' && <Clock className="w-4 h-4" />}
-                          {type}
+                          {type === 'PAID' && <CalendarDays className="w-4 h-4" />}
+                          {type === 'SICK' && <Heart className="w-4 h-4" />}
+                          {type === 'UNPAID' && <Clock className="w-4 h-4" />}
+                          {type.charAt(0) + type.slice(1).toLowerCase()}
                         </button>
                       ))}
                     </div>
@@ -270,61 +217,54 @@ export default function Leave() {
                   {/* Dates */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label htmlFor="fromDate" className="block text-sm font-medium text-gray-700 mb-1">
+                      <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">
                         From
                       </label>
                       <input
                         type="date"
-                        id="fromDate"
+                        id="startDate"
                         required
-                        value={formData.fromDate}
-                        onChange={(e) => handleFormChange('fromDate', e.target.value)}
+                        value={formData.startDate}
+                        onChange={(e) => handleFormChange('startDate', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-[#d4af37] focus:border-[#d4af37] bg-white text-gray-900 sm:text-sm"
                       />
                     </div>
                     <div>
-                      <label htmlFor="toDate" className="block text-sm font-medium text-gray-700 mb-1">
+                      <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">
                         To
                       </label>
                       <input
                         type="date"
-                        id="toDate"
+                        id="endDate"
                         required
-                        min={formData.fromDate}
-                        value={formData.toDate}
-                        onChange={(e) => handleFormChange('toDate', e.target.value)}
+                        min={formData.startDate}
+                        value={formData.endDate}
+                        onChange={(e) => handleFormChange('endDate', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-[#d4af37] focus:border-[#d4af37] bg-white text-gray-900 sm:text-sm"
                       />
                     </div>
                   </div>
 
-                  {/* Calculations & Warnings */}
-                  {formData.fromDate && formData.toDate && (
+                  {/* Calculations */}
+                  {formData.startDate && formData.endDate && (
                     <div className="flex items-center gap-4 flex-wrap">
                       <div className="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm font-medium">
                         {calculatedDays > 0 ? `${calculatedDays} day(s)` : 'Invalid date range'}
                       </div>
-                      
-                      {balanceWarning && (
-                        <div className="flex items-center gap-2 text-amber-600 text-sm font-medium bg-amber-50 px-3 py-1 rounded-full">
-                          <AlertCircle className="w-4 h-4" />
-                          Insufficient leave balance for this type.
-                        </div>
-                      )}
                     </div>
                   )}
 
                   {/* Remarks */}
                   <div>
-                    <label htmlFor="remarks" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="reason" className="block text-sm font-medium text-gray-700 mb-1">
                       Remarks
                     </label>
                     <textarea
-                      id="remarks"
+                      id="reason"
                       rows={3}
                       placeholder="Reason for leave (optional)"
-                      value={formData.remarks}
-                      onChange={(e) => handleFormChange('remarks', e.target.value)}
+                      value={formData.reason}
+                      onChange={(e) => handleFormChange('reason', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-[#d4af37] focus:border-[#d4af37] bg-white text-gray-900 sm:text-sm"
                     />
                   </div>
@@ -334,8 +274,8 @@ export default function Leave() {
                     <Button variant="secondary" onClick={() => setShowApplyForm(false)}>
                       Cancel
                     </Button>
-                    <Button type="submit" disabled={!isFormValid} icon={<Send className="w-5 h-5" />}>
-                      Submit Request
+                    <Button type="submit" disabled={!isFormValid || submitting} icon={<Send className="w-5 h-5" />}>
+                      {submitting ? 'Submitting...' : 'Submit Request'}
                     </Button>
                   </div>
                 </form>
@@ -438,7 +378,6 @@ export default function Leave() {
               
               {calendarCells.map((cell, idx) => {
                 const isWeekend = idx % 7 === 0 || idx % 7 === 6;
-                const status = cell.isCurrentMonth ? getDayStatus(cell.dateStr) : null;
                 const isToday = cell.dateStr === todayStr;
 
                 return (
@@ -447,9 +386,7 @@ export default function Leave() {
                     className={`aspect-square w-full flex flex-col items-center justify-center p-1 sm:p-2 text-sm sm:text-base transition-colors
                       ${!cell.isCurrentMonth ? 'text-gray-300' : ''}
                       ${cell.isCurrentMonth && isWeekend ? 'bg-gray-50 text-gray-500' : 'text-gray-700'}
-                      ${status === 'Approved' ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold rounded-lg' : ''}
-                      ${status === 'Pending' ? 'ring-2 ring-amber-400 rounded-lg' : ''}
-                      ${isToday && status !== 'Approved' && status !== 'Pending' ? 'ring-2 ring-gray-300 rounded-lg font-bold' : ''}
+                      ${isToday ? 'ring-2 ring-gray-300 rounded-lg font-bold' : ''}
                     `}
                   >
                     {cell.day}
